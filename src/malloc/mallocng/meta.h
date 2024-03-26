@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <errno.h>
 #include <limits.h>
+#include <mte.h>
 #include "glue.h"
 
 __attribute__((__visibility__("hidden")))
@@ -13,6 +14,8 @@ extern const uint16_t size_classes[];
 
 #define UNIT 16
 #define IB 4
+
+#define ALIGN_UP(p, size) (__typeof__(p))(((uintptr_t)(p) + ((size) - 1)) & ~((size) - 1))
 
 struct group {
 	struct meta *meta;
@@ -129,14 +132,16 @@ static inline int get_slot_index(const unsigned char *p)
 static inline struct meta *get_meta(const unsigned char *p)
 {
 	assert(!((uintptr_t)p & 15));
-	int offset = *(const uint16_t *)(p - 2);
-	int index = get_slot_index(p);
-	if (p[-4]) {
+	const unsigned char *local_meta = (const unsigned char *)((uint64_t)p & ~MTE_TAG_MASK);
+	int offset = *(const uint16_t *)(local_meta - 2);
+	int index = get_slot_index(local_meta);
+	if (local_meta[-4]) {
 		assert(!offset);
-		offset = *(uint32_t *)(p - 8);
+		offset = *(uint32_t *)(local_meta - 8);
 		assert(offset > 0xffff);
 	}
-	const struct group *base = (const void *)(p - UNIT*offset - UNIT);
+	const struct group *base = (const void *)(local_meta - UNIT*offset - UNIT);
+	//printf("base meta\n");
 	const struct meta *meta = base->meta;
 	assert(meta->mem == base);
 	assert(index <= meta->last_idx);
@@ -195,9 +200,11 @@ static inline void set_size(unsigned char *p, unsigned char *end, size_t n)
 
 static inline void *enframe(struct meta *g, int idx, size_t n, int ctr)
 {
+	n = ALIGN_UP(n, 16);
 	size_t stride = get_stride(g);
 	size_t slack = (stride-IB-n)/UNIT;
 	unsigned char *p = g->mem->storage + stride*idx;
+	printf("stride: %d, idx: %d\n", stride, idx);
 	unsigned char *end = p+stride-IB;
 	// cycle offset within slot to increase interval to address
 	// reuse, facilitate trapping double-free.
@@ -223,6 +230,8 @@ static inline void *enframe(struct meta *g, int idx, size_t n, int ctr)
 	*(uint16_t *)(p-2) = (size_t)(p-g->mem->storage)/UNIT;
 	p[-3] = idx;
 	set_size(p, end, n);
+	//printf("p: %p, n: %u, end: %p, end - p: %p\n", p, n, end, end - p);
+
 	return p;
 }
 

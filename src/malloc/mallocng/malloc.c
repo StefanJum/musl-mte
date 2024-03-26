@@ -4,6 +4,8 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <errno.h>
+#include <utils.h>
+/*#include <mte.h>*/
 
 #include "meta.h"
 
@@ -296,8 +298,15 @@ static int alloc_slot(int sc, size_t req)
 	return 0;
 }
 
+extern int g_debug_table[100];
+
 void *malloc(size_t n)
 {
+	/*printf_("Entering MALLOCNG\n");*/
+	/*uk_syscall_r_write(0, "Entering MALLOCNG\n", 18);*/
+	/*g_debug_table[REACHED_MALLOCNG] = 1;*/
+	printf("ENTERING MALLOC\n");
+
 	if (size_overflows(n)) return 0;
 	struct meta *g;
 	uint32_t mask, first;
@@ -310,6 +319,9 @@ void *malloc(size_t n)
 		void *p = mmap(0, needed, PROT_READ|PROT_WRITE,
 			MAP_PRIVATE|MAP_ANON, -1, 0);
 		if (p==MAP_FAILED) return 0;
+
+
+
 		wrlock();
 		step_seq();
 		g = alloc_meta();
@@ -376,7 +388,17 @@ void *malloc(size_t n)
 success:
 	ctr = ctx.mmap_counter;
 	unlock();
-	return enframe(g, idx, n, ctr);
+	/*g_debug_table[EXITED_MALLOCNG] = 1;*/
+	void *ptr = enframe(g, idx, n, ctr);
+
+	uint64_t mask_mte = mte_get_exclude_mask(ptr);
+	uint64_t addr = mte_insert_random_tag(ptr, mask_mte);
+
+	for (size_t i = 0; i < n; i += 16)
+		mte_store_tag(addr + i);
+	printf("addr: %p -- %p, size: %u\n", addr, addr + n, n);
+
+	return addr;
 }
 
 int is_allzero(void *p)

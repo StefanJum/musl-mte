@@ -24,8 +24,6 @@
 #define realloc __libc_realloc
 #define free __libc_free
 
-#define USE_MADV_FREE 0
-
 #if USE_REAL_ASSERT
 #include <assert.h>
 #else
