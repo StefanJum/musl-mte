@@ -298,6 +298,8 @@ static int alloc_slot(int sc, size_t req)
 
 void *malloc(size_t n)
 {
+	/*n = ALIGN_UP(n, 16);*/
+
 	if (size_overflows(n)) return 0;
 	struct meta *g;
 	uint32_t mask, first;
@@ -376,7 +378,25 @@ void *malloc(size_t n)
 success:
 	ctr = ctx.mmap_counter;
 	unlock();
+
+#ifdef MEMTAG
+	void *ptr = enframe(g, idx, ALIGN_UP(n, 16), ctr);
+
+	uintptr_t addr = mte_insert_random_tag((uintptr_t)ptr);
+
+	// malloc(0) is implemented as a wrong tag (i.e. the address is not tagged,
+	// but the returned pointer is). The pointer can be passed to free(),
+	// but accessing it will result in a tag mismatch.
+	if (n == 0)
+		return addr;
+
+	for (size_t i = 0; i < ALIGN_UP(n, 16); i += 16)
+		mte_store_tag(addr + i);
+
+	return (void *)addr;
+#else
 	return enframe(g, idx, n, ctr);
+#endif
 }
 
 int is_allzero(void *p)

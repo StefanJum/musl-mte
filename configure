@@ -34,6 +34,8 @@ Optional features:
   --enable-wrapper=...    build given musl toolchain wrapper [auto]
   --disable-shared        inhibit building shared library [enabled]
   --disable-static        inhibit building static library [enabled]
+  --enable-mte            build with MTE support [disabled]
+                          only available for aarch64 and mallocng
 
 Optional packages:
   --with-malloc=...       choose malloc implementation [mallocng]
@@ -139,6 +141,7 @@ debug=no
 warnings=yes
 shared=auto
 static=yes
+mte=no
 wrapper=auto
 gcc_wrapper=no
 clang_wrapper=no
@@ -158,6 +161,8 @@ case "$arg" in
 --disable-shared|--enable-shared=no) shared=no ;;
 --enable-static|--enable-static=yes) static=yes ;;
 --disable-static|--enable-static=no) static=no ;;
+--enable-mte|--enable-mte=yes) mte=yes ;;
+--disable-mte|--enable-mte=no) mte=no ;;
 --enable-optimize) optimize=yes ;;
 --enable-optimize=*) optimize=${arg#*=} ;;
 --disable-optimize) optimize=no ;;
@@ -788,6 +793,18 @@ fi
 if trycppif "__FAST_MATH__" \
   "$CFLAGS_C99FSE $CPPFLAGS $CFLAGS" ; then
 fail "$0: error: compiler has broken floating point; check CFLAGS"
+fi
+
+if test "$mte" = "yes" ; then
+	printf "Checking whether target architecture supports MTE... "
+	if test "$ARCH" != "aarch64"; then
+		printf "no\n"
+		fail "$0: error: mte only supported with aarch64"
+	fi
+
+	printf "yes\n"
+	CFLAGS_AUTO="$CFLAGS_AUTO -DMEMTAG -march=armv8.5-a+memtag"
+	SUBARCH=${SUBARCH}+memtag
 fi
 
 printf "creating config.mak... "
