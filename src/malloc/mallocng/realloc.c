@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#include <stdint.h>
 #include <stdlib.h>
 #include <sys/mman.h>
 #include <string.h>
@@ -9,20 +10,31 @@ void *realloc(void *p, size_t n)
 	if (!p) return malloc(n);
 	if (size_overflows(n)) return 0;
 
+#ifdef MEMTAG
+	size_t required_size = ALIGN_UP(n, 16);
+#else
+	size_t required_size = n;
+#endif
+	unsigned char *untagged = untag(p);
 	struct meta *g = get_meta(p);
-	int idx = get_slot_index(p);
+	int idx = get_slot_index(untagged);
 	size_t stride = get_stride(g);
 	unsigned char *start = g->mem->storage + stride*idx;
 	unsigned char *end = start + stride - IB;
-	size_t old_size = get_nominal_size(p, end);
-	size_t avail_size = end-(unsigned char *)p;
+	size_t old_size = get_nominal_size(untagged, end);
+	size_t avail_size = end-(unsigned char *)untagged;
 	void *new;
 
 	// only resize in-place if size class matches
-	if (n <= avail_size && n<MMAP_THRESHOLD
+	if (required_size <= avail_size && n<MMAP_THRESHOLD
 	    && size_to_class(n)+1 >= g->sizeclass) {
-		set_size(p, end, n);
-		return p;
+
+		// zero-tag the free space left
+		untag_region(untagged, n, old_size);
+
+		set_size(untagged, end, required_size);
+
+		return tag_region(p, n);
 	}
 
 	// use mremap if old and new size are both mmap-worthy

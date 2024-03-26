@@ -4,6 +4,9 @@
 #include <stdint.h>
 #include <errno.h>
 #include <limits.h>
+#ifdef MEMTAG
+#include <mte.h>
+#endif
 #include "glue.h"
 
 __attribute__((__visibility__("hidden")))
@@ -13,6 +16,10 @@ extern const uint16_t size_classes[];
 
 #define UNIT 16
 #define IB 4
+
+#ifndef ALIGN_UP
+#define ALIGN_UP(p, size) (__typeof__(p))(((uintptr_t)(p) + ((size) - 1)) & ~((size) - 1))
+#endif
 
 struct group {
 	struct meta *meta;
@@ -72,6 +79,44 @@ struct meta *alloc_meta(void);
 __attribute__((__visibility__("hidden")))
 int is_allzero(void *);
 
+static inline unsigned char *untag(void *p)
+{
+#ifdef MEMTAG
+	return (unsigned char *)((uintptr_t)p & ~MTE_TAG_MASK);
+#else
+	return (unsigned char *)p;
+#endif
+}
+
+static inline void *tag_region(void *p, size_t n)
+{
+#ifdef MEMTAG
+	uintptr_t addr = mte_insert_random_tag((uintptr_t)p);
+
+	// if n == 0 implement the allocation as a wrong tag
+	// (the address is not tagged, but the returned pointer is).
+	// The pointer can be passed to free(), but accessing it will
+	// result in a tag mismatch.
+	if (n == 0)
+		return (void *)addr;
+
+	for (size_t i = 0; i < ALIGN_UP(n, 16); i += 16)
+		mte_store_tag(addr + i);
+
+	return (void *)addr;
+#else
+	return p;
+#endif
+}
+
+static inline void untag_region(void *p, size_t start, size_t end)
+{
+#ifdef MEMTAG
+	for (size_t i = ALIGN_UP(start, 16); i < ALIGN_UP(end, 16); i += 16)
+		mte_store_tag((uintptr_t)((char *)p + i));
+#endif
+}
+
 static inline void queue(struct meta **phead, struct meta *m)
 {
 	assert(!m->next);
@@ -129,14 +174,15 @@ static inline int get_slot_index(const unsigned char *p)
 static inline struct meta *get_meta(const unsigned char *p)
 {
 	assert(!((uintptr_t)p & 15));
-	int offset = *(const uint16_t *)(p - 2);
-	int index = get_slot_index(p);
-	if (p[-4]) {
+	const unsigned char *untagged = untag((void *)p);
+	int offset = *(const uint16_t *)(untagged - 2);
+	int index = get_slot_index(untagged);
+	if (untagged[-4]) {
 		assert(!offset);
-		offset = *(uint32_t *)(p - 8);
+		offset = *(uint32_t *)(untagged - 8);
 		assert(offset > 0xffff);
 	}
-	const struct group *base = (const void *)(p - UNIT*offset - UNIT);
+	const struct group *base = (const void *)(untagged - UNIT*offset - UNIT);
 	const struct meta *meta = base->meta;
 	assert(meta->mem == base);
 	assert(index <= meta->last_idx);
@@ -199,10 +245,11 @@ static inline void *enframe(struct meta *g, int idx, size_t n, int ctr)
 	size_t slack = (stride-IB-n)/UNIT;
 	unsigned char *p = g->mem->storage + stride*idx;
 	unsigned char *end = p+stride-IB;
+	unsigned char *untagged = untag(p);
 	// cycle offset within slot to increase interval to address
 	// reuse, facilitate trapping double-free.
-	int off = (p[-3] ? *(uint16_t *)(p-2) + 1 : ctr) & 255;
-	assert(!p[-4]);
+	int off = (untagged[-3] ? *(uint16_t *)(untagged-2) + 1 : ctr) & 255;
+	assert(!untagged[-4]);
 	if (off > slack) {
 		size_t m = slack;
 		m |= m>>1; m |= m>>2; m |= m>>4;
@@ -213,21 +260,27 @@ static inline void *enframe(struct meta *g, int idx, size_t n, int ctr)
 	if (off) {
 		// store offset in unused header at offset zero
 		// if enframing at non-zero offset.
-		*(uint16_t *)(p-2) = off;
-		p[-3] = 7<<5;
+		*(uint16_t *)(untagged-2) = off;
+		untagged[-3] = 7<<5;
 		p += UNIT*off;
+		untagged += UNIT*off;
 		// for nonzero offset there is no permanent check
 		// byte, so make one.
-		p[-4] = 0;
+		untagged[-4] = 0;
 	}
-	*(uint16_t *)(p-2) = (size_t)(p-g->mem->storage)/UNIT;
-	p[-3] = idx;
-	set_size(p, end, n);
+	*(uint16_t *)(untagged-2) = (size_t)(untagged-g->mem->storage)/UNIT;
+	untagged[-3] = idx;
+	set_size(untagged, end, n);
+
 	return p;
 }
 
 static inline int size_to_class(size_t n)
 {
+#ifdef MEMTAG
+	n = ALIGN_UP(n, 16);
+#endif
+
 	n = (n+IB-1)>>4;
 	if (n<10) return n;
 	n++;

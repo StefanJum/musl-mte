@@ -304,6 +304,11 @@ void *malloc(size_t n)
 	int sc;
 	int idx;
 	int ctr;
+#ifdef MEMTAG
+	size_t required_size = ALIGN_UP(n, 16);
+#else
+	size_t required_size = n;
+#endif
 
 	if (n >= MMAP_THRESHOLD) {
 		size_t needed = n + IB + UNIT;
@@ -376,7 +381,9 @@ void *malloc(size_t n)
 success:
 	ctr = ctx.mmap_counter;
 	unlock();
-	return enframe(g, idx, n, ctr);
+
+	void *ptr = enframe(g, idx, required_size, ctr);
+	return tag_region(ptr, n);
 }
 
 int is_allzero(void *p)
