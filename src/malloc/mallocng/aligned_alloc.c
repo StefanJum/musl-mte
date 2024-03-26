@@ -25,31 +25,37 @@ void *aligned_alloc(size_t align, size_t len)
 	if (!p)
 		return 0;
 
+#ifdef MEMTAG
+	unsigned char *untagged = (unsigned char *)((uint64_t)p & ~MTE_TAG_MASK);
+#else
+	unsigned char *untagged = p;
+#endif
 	struct meta *g = get_meta(p);
-	int idx = get_slot_index(p);
+	int idx = get_slot_index(untagged);
 	size_t stride = get_stride(g);
 	unsigned char *start = g->mem->storage + stride*idx;
 	unsigned char *end = g->mem->storage + stride*(idx+1) - IB;
 	size_t adj = -(uintptr_t)p & (align-1);
 
 	if (!adj) {
-		set_size(p, end, len);
+		set_size(untagged, end, len);
 		return p;
 	}
 	p += adj;
+	untagged += adj;
 	uint32_t offset = (size_t)(p-g->mem->storage)/UNIT;
 	if (offset <= 0xffff) {
-		*(uint16_t *)(p-2) = offset;
-		p[-4] = 0;
+		*(uint16_t *)(untagged-2) = offset;
+		untagged[-4] = 0;
 	} else {
 		// use a 32-bit offset if 16-bit doesn't fit. for this,
 		// 16-bit field must be zero, [-4] byte nonzero.
-		*(uint16_t *)(p-2) = 0;
-		*(uint32_t *)(p-8) = offset;
-		p[-4] = 1;
+		*(uint16_t *)(untagged-2) = 0;
+		*(uint32_t *)(untagged-8) = offset;
+		untagged[-4] = 1;
 	}
-	p[-3] = idx;
-	set_size(p, end, len);
+	untagged[-3] = idx;
+	set_size(untagged, end, len);
 	// store offset to aligned enframing. this facilitates cycling
 	// offset and also iteration of heap for debugging/measurement.
 	// for extreme overalignment it won't fit but these are classless

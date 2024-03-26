@@ -4,6 +4,9 @@
 #include <stdint.h>
 #include <errno.h>
 #include <limits.h>
+#ifdef MEMTAG
+#include <mte.h>
+#endif
 #include "glue.h"
 
 __attribute__((__visibility__("hidden")))
@@ -13,6 +16,8 @@ extern const uint16_t size_classes[];
 
 #define UNIT 16
 #define IB 4
+
+#define ALIGN_UP(p, size) (__typeof__(p))(((uintptr_t)(p) + ((size) - 1)) & ~((size) - 1))
 
 struct group {
 	struct meta *meta;
@@ -129,14 +134,19 @@ static inline int get_slot_index(const unsigned char *p)
 static inline struct meta *get_meta(const unsigned char *p)
 {
 	assert(!((uintptr_t)p & 15));
-	int offset = *(const uint16_t *)(p - 2);
-	int index = get_slot_index(p);
-	if (p[-4]) {
+#ifdef MEMTAG
+	const unsigned char *untagged = (const unsigned char *)((uint64_t)p & ~MTE_TAG_MASK);
+#else
+	const unsigned char *untagged = p;
+#endif
+	int offset = *(const uint16_t *)(untagged - 2);
+	int index = get_slot_index(untagged);
+	if (untagged[-4]) {
 		assert(!offset);
-		offset = *(uint32_t *)(p - 8);
+		offset = *(uint32_t *)(untagged - 8);
 		assert(offset > 0xffff);
 	}
-	const struct group *base = (const void *)(p - UNIT*offset - UNIT);
+	const struct group *base = (const void *)(untagged - UNIT*offset - UNIT);
 	const struct meta *meta = base->meta;
 	assert(meta->mem == base);
 	assert(index <= meta->last_idx);
@@ -199,10 +209,15 @@ static inline void *enframe(struct meta *g, int idx, size_t n, int ctr)
 	size_t slack = (stride-IB-n)/UNIT;
 	unsigned char *p = g->mem->storage + stride*idx;
 	unsigned char *end = p+stride-IB;
+#ifdef MEMTAG
+	unsigned char *untagged = (unsigned char *)((uint64_t)p & ~MTE_TAG_MASK);
+#else
+	unsigned char *untagged = p;
+#endif
 	// cycle offset within slot to increase interval to address
 	// reuse, facilitate trapping double-free.
-	int off = (p[-3] ? *(uint16_t *)(p-2) + 1 : ctr) & 255;
-	assert(!p[-4]);
+	int off = (untagged[-3] ? *(uint16_t *)(untagged-2) + 1 : ctr) & 255;
+	assert(!untagged[-4]);
 	if (off > slack) {
 		size_t m = slack;
 		m |= m>>1; m |= m>>2; m |= m>>4;
@@ -213,16 +228,18 @@ static inline void *enframe(struct meta *g, int idx, size_t n, int ctr)
 	if (off) {
 		// store offset in unused header at offset zero
 		// if enframing at non-zero offset.
-		*(uint16_t *)(p-2) = off;
-		p[-3] = 7<<5;
+		*(uint16_t *)(untagged-2) = off;
+		untagged[-3] = 7<<5;
 		p += UNIT*off;
+		untagged += UNIT*off;
 		// for nonzero offset there is no permanent check
 		// byte, so make one.
-		p[-4] = 0;
+		untagged[-4] = 0;
 	}
-	*(uint16_t *)(p-2) = (size_t)(p-g->mem->storage)/UNIT;
-	p[-3] = idx;
-	set_size(p, end, n);
+	*(uint16_t *)(untagged-2) = (size_t)(untagged-g->mem->storage)/UNIT;
+	untagged[-3] = idx;
+	set_size(untagged, end, n);
+
 	return p;
 }
 

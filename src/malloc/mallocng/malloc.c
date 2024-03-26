@@ -298,6 +298,8 @@ static int alloc_slot(int sc, size_t req)
 
 void *malloc(size_t n)
 {
+	n = ALIGN_UP(n, 16);
+
 	if (size_overflows(n)) return 0;
 	struct meta *g;
 	uint32_t mask, first;
@@ -310,6 +312,9 @@ void *malloc(size_t n)
 		void *p = mmap(0, needed, PROT_READ|PROT_WRITE,
 			MAP_PRIVATE|MAP_ANON, -1, 0);
 		if (p==MAP_FAILED) return 0;
+
+
+
 		wrlock();
 		step_seq();
 		g = alloc_meta();
@@ -376,7 +381,20 @@ void *malloc(size_t n)
 success:
 	ctr = ctx.mmap_counter;
 	unlock();
+
+#if MEMTAG
+	void *ptr = enframe(g, idx, n, ctr);
+
+	uint64_t mask_mte = mte_get_exclude_mask((uint64_t)ptr);
+	uint64_t addr = mte_insert_random_tag((uint64_t)ptr, mask_mte);
+
+	for (size_t i = 0; i < n; i += 16)
+		mte_store_tag(addr + i);
+
+	return (void *)addr;
+#else
 	return enframe(g, idx, n, ctr);
+#endif
 }
 
 int is_allzero(void *p)

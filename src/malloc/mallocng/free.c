@@ -25,8 +25,13 @@ static struct mapinfo free_group(struct meta *g)
 		mi.len = g->maplen*4096UL;
 	} else {
 		void *p = g->mem;
+#ifdef MEMTAG
+		unsigned char *untagged = (unsigned char *)((uint64_t)p & ~MTE_TAG_MASK);
+#else
+		unsigned char *untagged = p;
+#endif
 		struct meta *m = get_meta(p);
-		int idx = get_slot_index(p);
+		int idx = get_slot_index(untagged);
 		g->mem->meta = 0;
 		// not checking size/reserved here; it's intentionally invalid
 		mi = nontrivial_free(m, idx);
@@ -102,17 +107,30 @@ void free(void *p)
 {
 	if (!p) return;
 
+#ifdef MEMTAG
+	void *untagged = (void *)((uint64_t)p & ~MTE_TAG_MASK);
+#else
+	void *untagged = p;
+#endif
+
 	struct meta *g = get_meta(p);
-	int idx = get_slot_index(p);
+	int idx = get_slot_index(untagged);
 	size_t stride = get_stride(g);
 	unsigned char *start = g->mem->storage + stride*idx;
 	unsigned char *end = start + stride - IB;
-	get_nominal_size(p, end);
+#ifdef MEMTAG
+	size_t nom_size = get_nominal_size(untagged, end);
+#endif
 	uint32_t self = 1u<<idx, all = (2u<<g->last_idx)-1;
-	((unsigned char *)p)[-3] = 255;
+	((unsigned char *)untagged)[-3] = 255;
 	// invalidate offset to group header, and cycle offset of
 	// used region within slot if current offset is zero.
-	*(uint16_t *)((char *)p-2) = 0;
+	*(uint16_t *)((char *)untagged-2) = 0;
+
+#ifdef MEMTAG
+	for (size_t i = 0; i < nom_size; i += 16)
+		mte_store_tag((uint64_t)((unsigned char *)untagged + i));
+#endif
 
 	// release any whole pages contained in the slot to be freed
 	// unless it's a single-slot group that will be unmapped.
