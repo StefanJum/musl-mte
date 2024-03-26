@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#include <stdint.h>
 #include <stdlib.h>
 #include <sys/mman.h>
 #include <string.h>
@@ -6,23 +7,42 @@
 
 void *realloc(void *p, size_t n)
 {
+	n = ALIGN_UP(n, 16);
 	if (!p) return malloc(n);
 	if (size_overflows(n)) return 0;
 
+	unsigned char *untagged = untag(p);
 	struct meta *g = get_meta(p);
-	int idx = get_slot_index(p);
+	int idx = get_slot_index(untagged);
 	size_t stride = get_stride(g);
 	unsigned char *start = g->mem->storage + stride*idx;
 	unsigned char *end = start + stride - IB;
-	size_t old_size = get_nominal_size(p, end);
-	size_t avail_size = end-(unsigned char *)p;
+	size_t old_size = get_nominal_size(untagged, end);
+	size_t avail_size = end-(unsigned char *)untagged;
 	void *new;
 
 	// only resize in-place if size class matches
 	if (n <= avail_size && n<MMAP_THRESHOLD
 	    && size_to_class(n)+1 >= g->sizeclass) {
-		set_size(p, end, n);
-		return p;
+
+		uintptr_t addr;
+
+#ifdef MEMTAG
+		for (size_t i = 0; i < old_size; i += 16)
+			mte_store_tag((uintptr_t)(untagged + i));
+
+		uintptr_t mask_mte = mte_get_exclude_mask((uintptr_t)p);
+		addr = mte_insert_random_tag((uintptr_t)p, mask_mte);
+
+		for (size_t i = 0; i < n; i += 16)
+			mte_store_tag(addr + i);
+#else
+		addr = (uintptr_t)p;
+#endif
+
+		set_size(untagged, end, n);
+
+		return (void *)addr;
 	}
 
 	// use mremap if old and new size are both mmap-worthy
