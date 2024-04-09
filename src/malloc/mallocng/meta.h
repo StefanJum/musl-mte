@@ -200,16 +200,17 @@ static inline void set_size(unsigned char *p, unsigned char *end, size_t n)
 
 static inline void *enframe(struct meta *g, int idx, size_t n, int ctr)
 {
-	n = ALIGN_UP(n, 16);
+	//n = ALIGN_UP(n, 16);
 	size_t stride = get_stride(g);
 	size_t slack = (stride-IB-n)/UNIT;
 	unsigned char *p = g->mem->storage + stride*idx;
-	printf("stride: %d, idx: %d\n", stride, idx);
+	unsigned char *untagged = (const unsigned char *)((uint64_t)p & ~MTE_TAG_MASK);
+	//printf("stride: %d, idx: %d\n", stride, idx);
 	unsigned char *end = p+stride-IB;
 	// cycle offset within slot to increase interval to address
 	// reuse, facilitate trapping double-free.
-	int off = (p[-3] ? *(uint16_t *)(p-2) + 1 : ctr) & 255;
-	assert(!p[-4]);
+	int off = (untagged[-3] ? *(uint16_t *)(untagged-2) + 1 : ctr) & 255;
+	assert(!untagged[-4]);
 	if (off > slack) {
 		size_t m = slack;
 		m |= m>>1; m |= m>>2; m |= m>>4;
@@ -220,16 +221,17 @@ static inline void *enframe(struct meta *g, int idx, size_t n, int ctr)
 	if (off) {
 		// store offset in unused header at offset zero
 		// if enframing at non-zero offset.
-		*(uint16_t *)(p-2) = off;
-		p[-3] = 7<<5;
+		*(uint16_t *)(untagged-2) = off;
+		untagged[-3] = 7<<5;
 		p += UNIT*off;
+		untagged += UNIT*off;
 		// for nonzero offset there is no permanent check
 		// byte, so make one.
-		p[-4] = 0;
+		untagged[-4] = 0;
 	}
-	*(uint16_t *)(p-2) = (size_t)(p-g->mem->storage)/UNIT;
-	p[-3] = idx;
-	set_size(p, end, n);
+	*(uint16_t *)(untagged-2) = (size_t)(untagged-g->mem->storage)/UNIT;
+	untagged[-3] = idx;
+	set_size(untagged, end, n);
 	//printf("p: %p, n: %u, end: %p, end - p: %p\n", p, n, end, end - p);
 
 	return p;

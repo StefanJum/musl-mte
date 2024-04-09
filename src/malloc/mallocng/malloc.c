@@ -4,7 +4,6 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <errno.h>
-#include <utils.h>
 /*#include <mte.h>*/
 
 #include "meta.h"
@@ -305,7 +304,9 @@ void *malloc(size_t n)
 	/*printf_("Entering MALLOCNG\n");*/
 	/*uk_syscall_r_write(0, "Entering MALLOCNG\n", 18);*/
 	/*g_debug_table[REACHED_MALLOCNG] = 1;*/
-	printf("ENTERING MALLOC\n");
+	/*printf("ENTERING MALLOC\n");*/
+	printf("malloc(%lu) = ", n);
+	n = ALIGN_UP(n, 32);
 
 	if (size_overflows(n)) return 0;
 	struct meta *g;
@@ -396,7 +397,11 @@ success:
 
 	for (size_t i = 0; i < n; i += 16)
 		mte_store_tag(addr + i);
-	printf("addr: %p -- %p, size: %u\n", addr, addr + n, n);
+	/*printf("addr: %p -- %p, size: %u\n", addr, addr + n, n);*/
+
+	/*((char *)addr)[n + 16 + 16] = 1;*/
+	/*printf("EXITING MALLOC\n");*/
+	printf("%p\n", addr);
 
 	return addr;
 }

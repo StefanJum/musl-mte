@@ -6,6 +6,8 @@
 
 void *realloc(void *p, size_t n)
 {
+	printf("realloc(%p, %lu) = ", p, n);
+	n = ALIGN_UP(n, 32);
 	if (!p) return malloc(n);
 	if (size_overflows(n)) return 0;
 
@@ -22,7 +24,8 @@ void *realloc(void *p, size_t n)
 	// only resize in-place if size class matches
 	if (n <= avail_size && n<MMAP_THRESHOLD
 	    && size_to_class(n)+1 >= g->sizeclass) {
-		set_size(p, end, n);
+		set_size(untagged, end, n);
+		printf("%p\n", p);
 		return p;
 	}
 
@@ -40,6 +43,7 @@ void *realloc(void *p, size_t n)
 			end = g->mem->storage + (needed - UNIT) - IB;
 			*end = 0;
 			set_size(p, end, n);
+			printf("%p\n", p);
 			return p;
 		}
 	}
@@ -48,5 +52,7 @@ void *realloc(void *p, size_t n)
 	if (!new) return 0;
 	memcpy(new, p, n < old_size ? n : old_size);
 	free(p);
+
+	printf("%p\n", new);
 	return new;
 }
