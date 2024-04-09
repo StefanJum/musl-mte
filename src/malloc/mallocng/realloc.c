@@ -18,15 +18,26 @@ void *realloc(void *p, size_t n)
 	unsigned char *start = g->mem->storage + stride*idx;
 	unsigned char *end = start + stride - IB;
 	size_t old_size = get_nominal_size(untagged, end);
-	size_t avail_size = end-(unsigned char *)p;
+	size_t avail_size = end-(unsigned char *)untagged;
 	void *new;
 
 	// only resize in-place if size class matches
 	if (n <= avail_size && n<MMAP_THRESHOLD
 	    && size_to_class(n)+1 >= g->sizeclass) {
+
+		for (size_t i = 0; i < old_size; i += 16)
+			mte_store_tag(untagged + i);
+
+		uint64_t mask_mte = mte_get_exclude_mask(p);
+		uint64_t addr = mte_insert_random_tag(p, mask_mte);
+
+		for (size_t i = 0; i < n; i += 16)
+			mte_store_tag(addr + i);
+
 		set_size(untagged, end, n);
-		printf("%p\n", p);
-		return p;
+
+		printf("%p\n", addr);
+		return addr;
 	}
 
 	// use mremap if old and new size are both mmap-worthy
