@@ -12,9 +12,9 @@ void *realloc(void *p, size_t n)
 	if (size_overflows(n)) return 0;
 
 #ifdef MEMTAG
-	void *untagged = (void *)((uint64_t)p & ~MTE_TAG_MASK);
+	unsigned char *untagged = (unsigned char *)((uint64_t)p & ~MTE_TAG_MASK);
 #else
-	void *untagged = p;
+	unsigned char *untagged = p;
 #endif
 	struct meta *g = get_meta(p);
 	int idx = get_slot_index(untagged);
@@ -33,10 +33,10 @@ void *realloc(void *p, size_t n)
 
 #ifdef MEMTAG
 		for (size_t i = 0; i < old_size; i += 16)
-			mte_store_tag(untagged + i);
+			mte_store_tag((uint64_t)(untagged + i));
 
-		uint64_t mask_mte = mte_get_exclude_mask(p);
-		addr = mte_insert_random_tag(p, mask_mte);
+		uint64_t mask_mte = mte_get_exclude_mask((uint64_t)p);
+		addr = mte_insert_random_tag((uint64_t)p, mask_mte);
 
 		for (size_t i = 0; i < n; i += 16)
 			mte_store_tag(addr + i);

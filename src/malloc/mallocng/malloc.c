@@ -385,16 +385,16 @@ success:
 	ctr = ctx.mmap_counter;
 	unlock();
 
-#ifdef MEMTAG
+#if MEMTAG
 	void *ptr = enframe(g, idx, n, ctr);
 
-	uint64_t mask_mte = mte_get_exclude_mask(ptr);
-	uint64_t addr = mte_insert_random_tag(ptr, mask_mte);
+	uint64_t mask_mte = mte_get_exclude_mask((uint64_t)ptr);
+	uint64_t addr = mte_insert_random_tag((uint64_t)ptr, mask_mte);
 
 	for (size_t i = 0; i < n; i += 16)
 		mte_store_tag(addr + i);
 
-	return addr;
+	return (void *)addr;
 #else
 	return enframe(g, idx, n, ctr);
 #endif

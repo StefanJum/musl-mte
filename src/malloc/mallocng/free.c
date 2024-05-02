@@ -25,7 +25,11 @@ static struct mapinfo free_group(struct meta *g)
 		mi.len = g->maplen*4096UL;
 	} else {
 		void *p = g->mem;
-		unsigned char *untagged = (const unsigned char *)((uint64_t)p & ~MTE_TAG_MASK);
+#ifdef MEMTAG
+		unsigned char *untagged = (unsigned char *)((uint64_t)p & ~MTE_TAG_MASK);
+#else
+		unsigned char *untagged = p;
+#endif
 		struct meta *m = get_meta(p);
 		int idx = get_slot_index(untagged);
 		g->mem->meta = 0;
@@ -101,7 +105,6 @@ static struct mapinfo nontrivial_free(struct meta *g, int i)
 
 void free(void *p)
 {
-	printf("free(%p)\n", p);
 	if (!p) return;
 
 #ifdef MEMTAG
@@ -124,7 +127,7 @@ void free(void *p)
 
 #ifdef MEMTAG
 	for (size_t i = 0; i < nom_size; i += 16)
-		mte_store_zero_tag(untagged + i);
+		mte_store_zero_tag((uint64_t)((unsigned char *)untagged + i));
 #endif
 
 	// release any whole pages contained in the slot to be freed

@@ -4,7 +4,9 @@
 #include <stdint.h>
 #include <errno.h>
 #include <limits.h>
+#ifdef MEMTAG
 #include <mte.h>
+#endif
 #include "glue.h"
 
 __attribute__((__visibility__("hidden")))
@@ -132,15 +134,19 @@ static inline int get_slot_index(const unsigned char *p)
 static inline struct meta *get_meta(const unsigned char *p)
 {
 	assert(!((uintptr_t)p & 15));
-	const unsigned char *local_meta = (const unsigned char *)((uint64_t)p & ~MTE_TAG_MASK);
-	int offset = *(const uint16_t *)(local_meta - 2);
-	int index = get_slot_index(local_meta);
-	if (local_meta[-4]) {
+#ifdef MEMTAG
+	const unsigned char *untagged = (const unsigned char *)((uint64_t)p & ~MTE_TAG_MASK);
+#else
+	const unsigned char *untagged = p;
+#endif
+	int offset = *(const uint16_t *)(untagged - 2);
+	int index = get_slot_index(untagged);
+	if (untagged[-4]) {
 		assert(!offset);
-		offset = *(uint32_t *)(local_meta - 8);
+		offset = *(uint32_t *)(untagged - 8);
 		assert(offset > 0xffff);
 	}
-	const struct group *base = (const void *)(local_meta - UNIT*offset - UNIT);
+	const struct group *base = (const void *)(untagged - UNIT*offset - UNIT);
 	const struct meta *meta = base->meta;
 	assert(meta->mem == base);
 	assert(index <= meta->last_idx);
@@ -204,7 +210,7 @@ static inline void *enframe(struct meta *g, int idx, size_t n, int ctr)
 	unsigned char *p = g->mem->storage + stride*idx;
 	unsigned char *end = p+stride-IB;
 #ifdef MEMTAG
-	unsigned char *untagged = (const unsigned char *)((uint64_t)p & ~MTE_TAG_MASK);
+	unsigned char *untagged = (unsigned char *)((uint64_t)p & ~MTE_TAG_MASK);
 #else
 	unsigned char *untagged = p;
 #endif

@@ -4,8 +4,6 @@
 
 void *aligned_alloc(size_t align, size_t len)
 {
-	/*printf("ENTERING ALIGNED_ALLOC\n");*/
-	printf("aligned_alloc(%lu, %lu) = ", align, len);
 	if ((align & -align) != align) {
 		errno = EINVAL;
 		return 0;
@@ -28,7 +26,7 @@ void *aligned_alloc(size_t align, size_t len)
 		return 0;
 
 #ifdef MEMTAG
-	unsigned char *untagged = (const unsigned char *)((uint64_t)p & ~MTE_TAG_MASK);
+	unsigned char *untagged = (unsigned char *)((uint64_t)p & ~MTE_TAG_MASK);
 #else
 	unsigned char *untagged = p;
 #endif

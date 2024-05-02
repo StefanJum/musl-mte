@@ -795,12 +795,13 @@ if trycppif "__FAST_MATH__" \
 fail "$0: error: compiler has broken floating point; check CFLAGS"
 fi
 
-if test "$mte" = on ; then
+if test "$mte" = "yes" ; then
 	if test "$ARCH" != "aarch64"; then
 		fail "$0: error: mte only supported with aarch64"
 	fi
 
-	CFLAGS_AUTO="$CFLAGS_AUTO -DMEMTAG"
+	printf "adding MTE flags\n"
+	CFLAGS_AUTO="$CFLAGS_AUTO -DMEMTAG -march=armv8.5-a+memtag"
 	SUBARCH=${SUBARCH}+memtag
 fi
 
