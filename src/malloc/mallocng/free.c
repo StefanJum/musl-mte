@@ -118,6 +118,9 @@ void free(void *p)
 	size_t stride = get_stride(g);
 	unsigned char *start = g->mem->storage + stride*idx;
 	unsigned char *end = start + stride - IB;
+#ifdef MEMTAG
+	size_t nom_size = get_nominal_size(untagged, end);
+#endif
 	uint32_t self = 1u<<idx, all = (2u<<g->last_idx)-1;
 	((unsigned char *)untagged)[-3] = 255;
 	// invalidate offset to group header, and cycle offset of
@@ -125,7 +128,6 @@ void free(void *p)
 	*(uint16_t *)((char *)untagged-2) = 0;
 
 #ifdef MEMTAG
-	size_t nom_size = get_nominal_size(untagged, end);
 	for (size_t i = 0; i < nom_size; i += 16)
 		mte_store_zero_tag((uint64_t)((unsigned char *)untagged + i));
 #endif
