@@ -1,3 +1,4 @@
+#include <stdint.h>
 #define _GNU_SOURCE
 #include <stdlib.h>
 #include <sys/mman.h>
@@ -6,12 +7,15 @@
 
 void *realloc(void *p, size_t n)
 {
-	printf("realloc(%p, %lu) = ", p, n);
-	n = ALIGN_UP(n, 32);
+	n = ALIGN_UP(n, 16);
 	if (!p) return malloc(n);
 	if (size_overflows(n)) return 0;
 
+#ifdef MEMTAG
 	void *untagged = (void *)((uint64_t)p & ~MTE_TAG_MASK);
+#else
+	void *untagged = p;
+#endif
 	struct meta *g = get_meta(p);
 	int idx = get_slot_index(untagged);
 	size_t stride = get_stride(g);
@@ -25,19 +29,24 @@ void *realloc(void *p, size_t n)
 	if (n <= avail_size && n<MMAP_THRESHOLD
 	    && size_to_class(n)+1 >= g->sizeclass) {
 
+		uint64_t addr;
+
+#ifdef MEMTAG
 		for (size_t i = 0; i < old_size; i += 16)
 			mte_store_tag(untagged + i);
 
 		uint64_t mask_mte = mte_get_exclude_mask(p);
-		uint64_t addr = mte_insert_random_tag(p, mask_mte);
+		addr = mte_insert_random_tag(p, mask_mte);
 
 		for (size_t i = 0; i < n; i += 16)
 			mte_store_tag(addr + i);
+#else
+		addr = (uint64_t)p;
+#endif
 
 		set_size(untagged, end, n);
 
-		printf("%p\n", addr);
-		return addr;
+		return (void *)addr;
 	}
 
 	// use mremap if old and new size are both mmap-worthy
@@ -54,7 +63,6 @@ void *realloc(void *p, size_t n)
 			end = g->mem->storage + (needed - UNIT) - IB;
 			*end = 0;
 			set_size(p, end, n);
-			printf("%p\n", p);
 			return p;
 		}
 	}
@@ -64,6 +72,5 @@ void *realloc(void *p, size_t n)
 	memcpy(new, p, n < old_size ? n : old_size);
 	free(p);
 
-	printf("%p\n", new);
 	return new;
 }

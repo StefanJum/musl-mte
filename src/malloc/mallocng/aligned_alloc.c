@@ -27,18 +27,20 @@ void *aligned_alloc(size_t align, size_t len)
 	if (!p)
 		return 0;
 
+#ifdef MEMTAG
 	unsigned char *untagged = (const unsigned char *)((uint64_t)p & ~MTE_TAG_MASK);
+#else
+	unsigned char *untagged = p;
+#endif
 	struct meta *g = get_meta(p);
 	int idx = get_slot_index(untagged);
 	size_t stride = get_stride(g);
 	unsigned char *start = g->mem->storage + stride*idx;
-	/*printf("START: %p\n", start);*/
 	unsigned char *end = g->mem->storage + stride*(idx+1) - IB;
 	size_t adj = -(uintptr_t)p & (align-1);
 
 	if (!adj) {
 		set_size(untagged, end, len);
-		printf("%p\n", p);
 		return p;
 	}
 	p += adj;
@@ -62,7 +64,5 @@ void *aligned_alloc(size_t align, size_t len)
 	// allocations anyway.
 	*(uint16_t *)(start - 2) = (size_t)(p-start)/UNIT;
 	start[-3] = 7<<5;
-	/*printf("EXITIING ALIGNED_ALLOC\n");*/
-	printf("%p\n", p);
 	return p;
 }

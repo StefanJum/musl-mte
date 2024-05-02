@@ -141,7 +141,6 @@ static inline struct meta *get_meta(const unsigned char *p)
 		assert(offset > 0xffff);
 	}
 	const struct group *base = (const void *)(local_meta - UNIT*offset - UNIT);
-	//printf("base meta\n");
 	const struct meta *meta = base->meta;
 	assert(meta->mem == base);
 	assert(index <= meta->last_idx);
@@ -200,13 +199,15 @@ static inline void set_size(unsigned char *p, unsigned char *end, size_t n)
 
 static inline void *enframe(struct meta *g, int idx, size_t n, int ctr)
 {
-	//n = ALIGN_UP(n, 16);
 	size_t stride = get_stride(g);
 	size_t slack = (stride-IB-n)/UNIT;
 	unsigned char *p = g->mem->storage + stride*idx;
-	unsigned char *untagged = (const unsigned char *)((uint64_t)p & ~MTE_TAG_MASK);
-	//printf("stride: %d, idx: %d\n", stride, idx);
 	unsigned char *end = p+stride-IB;
+#ifdef MEMTAG
+	unsigned char *untagged = (const unsigned char *)((uint64_t)p & ~MTE_TAG_MASK);
+#else
+	unsigned char *untagged = p;
+#endif
 	// cycle offset within slot to increase interval to address
 	// reuse, facilitate trapping double-free.
 	int off = (untagged[-3] ? *(uint16_t *)(untagged-2) + 1 : ctr) & 255;
@@ -232,7 +233,6 @@ static inline void *enframe(struct meta *g, int idx, size_t n, int ctr)
 	*(uint16_t *)(untagged-2) = (size_t)(untagged-g->mem->storage)/UNIT;
 	untagged[-3] = idx;
 	set_size(untagged, end, n);
-	//printf("p: %p, n: %u, end: %p, end - p: %p\n", p, n, end, end - p);
 
 	return p;
 }

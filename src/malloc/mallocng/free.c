@@ -104,11 +104,13 @@ void free(void *p)
 	printf("free(%p)\n", p);
 	if (!p) return;
 
+#ifdef MEMTAG
 	void *untagged = (void *)((uint64_t)p & ~MTE_TAG_MASK);
+#else
+	void *untagged = p;
+#endif
 
-	/*printf("ENTERING FREE\n");*/
 	struct meta *g = get_meta(p);
-	/*printf("get_meta: %p\n", g);*/
 	int idx = get_slot_index(untagged);
 	size_t stride = get_stride(g);
 	unsigned char *start = g->mem->storage + stride*idx;
@@ -120,8 +122,10 @@ void free(void *p)
 	// used region within slot if current offset is zero.
 	*(uint16_t *)((char *)untagged-2) = 0;
 
+#ifdef MEMTAG
 	for (size_t i = 0; i < nom_size; i += 16)
 		mte_store_zero_tag(untagged + i);
+#endif
 
 	// release any whole pages contained in the slot to be freed
 	// unless it's a single-slot group that will be unmapped.
@@ -146,7 +150,6 @@ void free(void *p)
 			g->freed_mask = freed+self;
 		else if (a_cas(&g->freed_mask, freed, freed+self)!=freed)
 			continue;
-		/*printf("EXITING FREE\n");*/
 		return;
 	}
 
@@ -158,5 +161,4 @@ void free(void *p)
 		munmap(mi.base, mi.len);
 		errno = e;
 	}
-	/*printf("EXITING FREE\n");*/
 }
